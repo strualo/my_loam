@@ -5,7 +5,7 @@
 
 typedef pcl::PointXYZI PointType;
 
-inline double rad2deg(double radians)
+inline double rad2deg(double radians)  //radin  to degree
 {
   return radians * 180.0 / M_PI;
 }
