@@ -6,6 +6,7 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
+        - /TF1
         - /TF1/Frames1
         - /Odometry1/Shape1
         - /Odometry2
@@ -59,13 +60,13 @@ Visualization Manager:
       Frames:
         All Enabled: false
         aft_mapped:
-          Value: true
+          Value: false
         camera:
-          Value: true
+          Value: false
         camera_init:
-          Value: true
+          Value: false
         laser_odom:
-          Value: true
+          Value: false
         velodyne:
           Value: true
       Marker Scale: 15
@@ -78,7 +79,8 @@ Visualization Manager:
           aft_mapped:
             {}
           camera:
-            {}
+            velodyne:
+              {}
           laser_odom:
             {}
       Update Interval: 0
@@ -86,8 +88,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 124.738388
-        Min Value: -93.7886581
+        Max Value: 50.8086205
+        Min Value: -38.3228073
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -236,16 +238,16 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 97.2649918
+      Distance: 16.2447815
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -1.0801475
-        Y: 8.31339836
-        Z: 3.99660468
+        X: -1.79657531
+        Y: 3.58257198
+        Z: -4.84763908
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.0500000007
       Invert Z Axis: false
