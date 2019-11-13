@@ -49,7 +49,7 @@ pcl::PointCloud<PointType>::Ptr laserCloudCornerLast(new pcl::PointCloud<PointTy
 //less flat points of last frame
 pcl::PointCloud<PointType>::Ptr laserCloudSurfLast(new pcl::PointCloud<PointType>());
 //保存前一个节点发过来的未经处理过的特征点
-pcl::PointCloud<PointType>::Ptr laserCloudOri(new pcl::PointCloud<PointType>());
+pcl::PointCloud<PointType>::Ptr laserCloudOri(new pcl::PointCloud<PointType>());////匹配到的点的个数(即存在多少个约束) 
 pcl::PointCloud<PointType>::Ptr coeffSel(new pcl::PointCloud<PointType>());
 //receive all points
 pcl::PointCloud<PointType>::Ptr laserCloudFullRes(new pcl::PointCloud<PointType>());
@@ -78,7 +78,7 @@ float pointSearchSurfInd2[40000];//l
 float pointSearchSurfInd3[40000];//m
 
 //当前帧相对上一帧的状态转移量，in the local frame
-float transform[6] = {0};//x y z roll pitch yaw
+float transform[6] = {0};// roll pitch yaw  x y z
 //当前帧相对于第一帧的状态转移量，in the global frame
 float transformSum[6] = {0};
 
@@ -338,7 +338,7 @@ void laserCloudLessFlatHandler(const sensor_msgs::PointCloud2ConstPtr& surfPoint
 }
 
 //接收全部点
-void laserCloudFullResHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudFullRes2)
+void laserCloudFullResHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudFullRes2)  ///subscribe velodyne_cloud_2  removeNaNFromPointCloud
 {
   timeLaserCloudFullRes = laserCloudFullRes2->header.stamp.toSec();
 
@@ -387,7 +387,7 @@ int main(int argc, char** argv)
   ros::Subscriber subCornerPointsLessSharp = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_less_sharp", 2, laserCloudLessSharpHandler);
   ros::Subscriber subSurfPointsFlat = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_flat", 2, laserCloudFlatHandler);
   ros::Subscriber subSurfPointsLessFlat = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_less_flat", 2, laserCloudLessFlatHandler);
-  ros::Subscriber subLaserCloudFullRes = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_cloud_2", 2, laserCloudFullResHandler);
+  ros::Subscriber subLaserCloudFullRes = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_cloud_2", 2, laserCloudFullResHandler); // 消除非匀速运动畸变后的所有的点
   ros::Subscriber subImuTrans = nh.subscribe<sensor_msgs::PointCloud2>("/imu_trans", 5, imuTransHandler);
 
   ros::Publisher pubLaserCloudCornerLast = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_corner_last", 2);
@@ -420,7 +420,7 @@ int main(int argc, char** argv)
   while (status) 
   {
     ros::spinOnce();
-
+  //在laserOdometry中配准的source是新一帧的少数特征点的点云 ,target是前一帧的多数特征点的点云.
     if (newCornerPointsSharp && newCornerPointsLessSharp && newSurfPointsFlat && newSurfPointsLessFlat && newLaserCloudFullRes && newImuTrans &&
         fabs(timeCornerPointsSharp - timeSurfPointsLessFlat) < 0.005 &&fabs(timeCornerPointsLessSharp - timeSurfPointsLessFlat) < 0.005 &&
         fabs(timeSurfPointsFlat - timeSurfPointsLessFlat) < 0.005 && fabs(timeLaserCloudFullRes - timeSurfPointsLessFlat) < 0.005 &&
@@ -447,8 +447,8 @@ int main(int argc, char** argv)
             laserCloudSurfLast = laserCloudTemp;
 
             //使用上一帧的特征点构建kd-tree
-            kdtreeCornerLast->setInputCloud(laserCloudCornerLast);//所有的边沿点集合
-            kdtreeSurfLast->setInputCloud(laserCloudSurfLast);//所有的平面点集合
+            kdtreeCornerLast->setInputCloud(laserCloudCornerLast);//所有的边沿点集合    cornerPointsLessSharp
+            kdtreeSurfLast->setInputCloud(laserCloudSurfLast);//所有的平面点集合  surfPointsLessFlat
 
             //将cornerPointsLessSharp和surfPointLessFlat点也即边沿点和平面点分别发送给laserMapping
             sensor_msgs::PointCloud2 laserCloudCornerLast2;
@@ -463,8 +463,8 @@ int main(int argc, char** argv)
             laserCloudSurfLast2.header.frame_id = "/camera";
             pubLaserCloudSurfLast.publish(laserCloudSurfLast2);
 
-            //记住原点的翻滚角和俯仰角
-            transformSum[0] += imuPitchStart;
+            //记住原点的翻滚角和俯仰角   建图原点!!!
+            transformSum[0] += imuPitchStart; //当前帧相对于  第一帧  的状态转移量，in the global frame
             transformSum[2] += imuRollStart;
 
             systemInited = true;
@@ -472,7 +472,8 @@ int main(int argc, char** argv)
           }
 
           //T平移量的初值赋值为加减速的位移量，为其梯度下降的方向（沿用上次转换的T（一个sweep匀速模型），同时在其基础上减去匀速运动位移，即只考虑加减速的位移量）
-          transform[3] -= imuVeloFromStartX * scanPeriod;
+          //为什么减去?????
+          transform[3] -= imuVeloFromStartX * scanPeriod;  //当前帧相对  上一帧  的状态转移量，in the local frame //imuVeloFromStartX点云最后一个点相对于第一个点由于加减速产生的畸变速度
           transform[4] -= imuVeloFromStartY * scanPeriod;
           transform[5] -= imuVeloFromStartZ * scanPeriod;
 
@@ -480,32 +481,33 @@ int main(int argc, char** argv)
           {
             std::vector<int> indices;
             pcl::removeNaNFromPointCloud(*cornerPointsSharp,*cornerPointsSharp, indices);
-            int cornerPointsSharpNum = cornerPointsSharp->points.size();
-            int surfPointsFlatNum = surfPointsFlat->points.size();
+            int cornerPointsSharpNum = cornerPointsSharp->points.size(); //新一帧点云 角点数量
+            int surfPointsFlatNum = surfPointsFlat->points.size(); //新一帧点云 平面点数量
             
             //Levenberg-Marquardt算法(L-M method)，非线性最小二乘算法，最优化算法的一种
-            //最多迭代25次
+            //最多迭代25次 (基本不会迭代超过5次就会收敛)
             for (int iterCount = 0; iterCount < 25; iterCount++) 
             {
-                laserCloudOri->clear();
+                laserCloudOri->clear(); //保存匹配距离点对 成功的当前帧点云 的 点 //匹配到的点的个数(即存在多少个约束) 
                 coeffSel->clear();
-
+                //std::cout<<"*******************************iterCount: "<<iterCount<<std::endl;
                 //处理当前点云中的曲率最大的特征点,从上个点云中曲率比较大的特征点中找两个最近距离点，一个点使用kd-tree查找，另一个根据找到的点在其相邻线找另外一个最近距离的点
-                for (int i = 0; i < cornerPointsSharpNum; i++) {
-                  TransformToStart(&cornerPointsSharp->points[i], &pointSel);
-
+                for (int i = 0; i < cornerPointsSharpNum; i++) 
+                {
+                  TransformToStart(&cornerPointsSharp->points[i], &pointSel); //将当前特征点 投影到扫描开始
                   //每迭代五次，重新查找最近点
                   if (iterCount % 5 == 0) {
                     std::vector<int> indices;
-                    pcl::removeNaNFromPointCloud(*laserCloudCornerLast,*laserCloudCornerLast, indices);
+                    pcl::removeNaNFromPointCloud(*laserCloudCornerLast,*laserCloudCornerLast, indices); //target点云 上一帧多数特征点的点云
                     //kd-tree查找一个最近距离点，边沿点未经过体素栅格滤波，一般边沿点本来就比较少，不做滤波
-                    kdtreeCornerLast->nearestKSearch(pointSel, 1, pointSearchInd, pointSearchSqDis);
-                    int closestPointInd = -1, minPointInd2 = -1;
+                    kdtreeCornerLast->nearestKSearch(pointSel, 1, pointSearchInd, pointSearchSqDis);//pcl book p103
+                    int closestPointInd = -1, minPointInd2 = -1;//距离目标点距离最小的点 和另一个相邻线距离目标点距离最小的点
 
                     //寻找相邻线距离目标点距离最小的点
                     //再次提醒：velodyne是2度一线，scanID相邻并不代表线号相邻，相邻线度数相差2度，也即线号scanID相差2
                     if (pointSearchSqDis[0] < 25) {//找到的最近点距离的确很近的话  //搜索到的点平方距离
-                      closestPointInd = pointSearchInd[0];
+                      closestPointInd = pointSearchInd[0];  //最近点的索引
+                      //std::cout<<"closestPointInd: "<<closestPointInd<<std::endl;
                       //提取最近点线号
                       int closestPointScan = int(laserCloudCornerLast->points[closestPointInd].intensity);
 
@@ -517,36 +519,35 @@ int main(int argc, char** argv)
                           break;
                         }
 
-                        pointSqDis = (laserCloudCornerLast->points[j].x - pointSel.x) * 
+                        if (int(laserCloudCornerLast->points[j].intensity) > closestPointScan) 
+                        {//确保两个点不在同一条scan上（相邻线查找应该可以用scanID == closestPointScan +/- 1 来做）
+                          pointSqDis = (laserCloudCornerLast->points[j].x - pointSel.x) * 
                                     (laserCloudCornerLast->points[j].x - pointSel.x) + 
                                     (laserCloudCornerLast->points[j].y - pointSel.y) * 
                                     (laserCloudCornerLast->points[j].y - pointSel.y) + 
                                     (laserCloudCornerLast->points[j].z - pointSel.z) * 
                                     (laserCloudCornerLast->points[j].z - pointSel.z);
-
-                        if (int(laserCloudCornerLast->points[j].intensity) > closestPointScan) {//确保两个点不在同一条scan上（相邻线查找应该可以用scanID == closestPointScan +/- 1 来做）
-                          if (pointSqDis < minPointSqDis2) {//距离更近，要小于初始值5米
-                              //更新最小距离与点序
-                            minPointSqDis2 = pointSqDis;
-                            minPointInd2 = j;
-                          }
+                            if (pointSqDis < minPointSqDis2) {//距离更近，要小于初始值5米
+                                //更新最小距离与点序
+                              minPointSqDis2 = pointSqDis;
+                              minPointInd2 = j;
+                            }
                         }
                       }
 
                       //同理
-                      for (int j = closestPointInd - 1; j >= 0; j--) {//向scanID减小的方向查找
+                      for (int j = closestPointInd - 1; j >= 0; j--) 
+                      {//向scanID减小的方向查找
                         if (int(laserCloudCornerLast->points[j].intensity) < closestPointScan - 2.5) {
                           break;
                         }
-
-                        pointSqDis = (laserCloudCornerLast->points[j].x - pointSel.x) * 
+                        if (int(laserCloudCornerLast->points[j].intensity) < closestPointScan) {
+                         pointSqDis = (laserCloudCornerLast->points[j].x - pointSel.x) * 
                                     (laserCloudCornerLast->points[j].x - pointSel.x) + 
                                     (laserCloudCornerLast->points[j].y - pointSel.y) * 
                                     (laserCloudCornerLast->points[j].y - pointSel.y) + 
                                     (laserCloudCornerLast->points[j].z - pointSel.z) * 
                                     (laserCloudCornerLast->points[j].z - pointSel.z);
-
-                        if (int(laserCloudCornerLast->points[j].intensity) < closestPointScan) {
                           if (pointSqDis < minPointSqDis2) {
                             minPointSqDis2 = pointSqDis;
                             minPointInd2 = j;
@@ -590,8 +591,11 @@ int main(int argc, char** argv)
 
                     //两个最近距离点之间的距离，即向量AB的模
                     float l12 = sqrt((x1 - x2)*(x1 - x2) + (y1 - y2)*(y1 - y2) + (z1 - z2)*(z1 - z2));
+                    
+                    //点到线的距离，d = |向量OA 叉乘 向量OB|/|AB|
+                    float ld2 = a012 / l12;
 
-                    //AB方向的单位向量与OAB平面的单位法向量的向量积在各轴上的分量（d的方向）
+                    //AB方向的单位向量与OAB平面的单位法向量的向量积在各轴上的分量（d的方向）  ???
                     //x轴分量i
                     float la = ((y1 - y2)*((x0 - x1)*(y0 - y2) - (x0 - x2)*(y0 - y1)) 
                             + (z1 - z2)*((x0 - x1)*(z0 - z2) - (x0 - x2)*(z0 - z1))) / a012 / l12;
@@ -604,18 +608,15 @@ int main(int argc, char** argv)
                     float lc = -((x1 - x2)*((x0 - x1)*(z0 - z2) - (x0 - x2)*(z0 - z1)) 
                             + (y1 - y2)*((y0 - y1)*(z0 - z2) - (y0 - y2)*(z0 - z1))) / a012 / l12;
 
-                    //点到线的距离，d = |向量OA 叉乘 向量OB|/|AB|
-                    float ld2 = a012 / l12;
-
                     //unused
-                    pointProj = pointSel;
-                    pointProj.x -= la * ld2;
-                    pointProj.y -= lb * ld2;
-                    pointProj.z -= lc * ld2;
+                    // pointProj = pointSel;
+                    // pointProj.x -= la * ld2;
+                    // pointProj.y -= lb * ld2;
+                    // pointProj.z -= lc * ld2;
 
                     //权重计算，距离越大权重越小，距离越小权重越大，得到的权重范围<=1
                     float s = 1;
-                    if (iterCount >= 5) {//5次迭代之后开始增加权重因素
+                    if (iterCount >= 5) {//5次迭代之后开始  减小 权重因素  ???
                       s = 1 - 1.8 * fabs(ld2);
                     }
 
@@ -657,7 +658,7 @@ int main(int argc, char** argv)
                                     (laserCloudSurfLast->points[j].z - pointSel.z) * 
                                     (laserCloudSurfLast->points[j].z - pointSel.z);
 
-                        if (int(laserCloudSurfLast->points[j].intensity) <= closestPointScan) {//如果点的线号小于等于最近点的线号(应该最多取等，也即同一线上的点)
+                        if (int(laserCloudSurfLast->points[j].intensity) == closestPointScan) {//如果点的线号小于等于最近点的线号(应该最多取等，也即同一线上的点!!!)
                           if (pointSqDis < minPointSqDis2) {
                             minPointSqDis2 = pointSqDis;
                             minPointInd2 = j;
@@ -684,7 +685,7 @@ int main(int argc, char** argv)
                                     (laserCloudSurfLast->points[j].z - pointSel.z) * 
                                     (laserCloudSurfLast->points[j].z - pointSel.z);
 
-                        if (int(laserCloudSurfLast->points[j].intensity) >= closestPointScan) {
+                        if (int(laserCloudSurfLast->points[j].intensity) == closestPointScan) {
                           if (pointSqDis < minPointSqDis2) {
                             minPointSqDis2 = pointSqDis;
                             minPointInd2 = j;
@@ -735,10 +736,10 @@ int main(int argc, char** argv)
                     float pd2 = pa * pointSel.x + pb * pointSel.y + pc * pointSel.z + pd;
 
                     //unused
-                    pointProj = pointSel;
-                    pointProj.x -= pa * pd2;
-                    pointProj.y -= pb * pd2;
-                    pointProj.z -= pc * pd2;
+                    // pointProj = pointSel;
+                    // pointProj.x -= pa * pd2;
+                    // pointProj.y -= pb * pd2;
+                    // pointProj.z -= pc * pd2;
 
                     //同理计算权重
                     float s = 1;
@@ -761,20 +762,20 @@ int main(int argc, char** argv)
                   }
                 }//end of plane point
 
-                int pointSelNum = laserCloudOri->points.size(); //匹配到的点的个数(即存在多少个约束) 
+                int pointSelNum = laserCloudOri->points.size(); //匹配到的点的个数(即存在多少个约束)   当前帧角点+平面点
                 //满足要求的特征点至少10个，特征匹配数量太少弃用此帧数据
                 if (pointSelNum < 10) {
                   continue;
                 }
 
-                cv::Mat matA(pointSelNum, 6, CV_32F, cv::Scalar::all(0)); //Jaccobian矩阵
-                cv::Mat matAt(6, pointSelNum, CV_32F, cv::Scalar::all(0));
+                cv::Mat matA(pointSelNum, 6, CV_32F, cv::Scalar::all(0)); //Jaccobian矩阵 pointSelNum行 6列
+                cv::Mat matAt(6, pointSelNum, CV_32F, cv::Scalar::all(0)); //Jaccobian矩阵 转置
                 cv::Mat matAtA(6, 6, CV_32F, cv::Scalar::all(0)); 
                 cv::Mat matB(pointSelNum, 1, CV_32F, cv::Scalar::all(0));
                 cv::Mat matAtB(6, 1, CV_32F, cv::Scalar::all(0));
                 cv::Mat matX(6, 1, CV_32F, cv::Scalar::all(0));
 
-                //计算matA,matB矩阵 Jaccobian矩阵
+                //计算matA,matB矩阵 Jaccobian矩阵  pointSelNum行 6列
                 for (int i = 0; i < pointSelNum; i++) 
                 {
                   /**
@@ -903,12 +904,18 @@ int main(int argc, char** argv)
                                     pow(matX.at<float>(4, 0) * 100, 2) +
                                     pow(matX.at<float>(5, 0) * 100, 2));
 
-                if (deltaR < 0.1 && deltaT < 0.1) {//迭代终止条件
+                if (deltaR < 0.1 && deltaT < 0.1) //迭代终止条件
                   break;
-                }
+                
             }  //迭代25次 line 491
           }  //line 482
 
+
+  /**********************IMU 辅助********************
+  源码中充斥着大量的IMU相关的变量和逻辑处理。实际上IMU只被当成一个ODOM，用于预测位姿， 以为后续的位姿优化提供初始位姿。所以：
+  （a） 用航位推算的思路去理解IMU相关代码
+  （b）可以尝试着将IMU的代码封装成一个predictWithIMU（）的接口，整个代码会简单很多， 下一章亦然。
+  ***********************************/
           float rx, ry, rz, tx, ty, tz;
           //求相对于原点的旋转量,垂直方向上1.05倍修正?
           AccumulateRotation(transformSum[0], transformSum[1], transformSum[2],  //相对于第一个点云即原点，积累旋转量
@@ -940,6 +947,7 @@ int main(int argc, char** argv)
           transformSum[3] = tx;
           transformSum[4] = ty;
           transformSum[5] = tz;
+    /************end  of  IMU辅助 ************************/
 
           //欧拉角转换成四元数
           geometry_msgs::Quaternion geoQuat = tf::createQuaternionMsgFromRollPitchYaw(rz, -rx, -ry);
@@ -961,19 +969,17 @@ int main(int argc, char** argv)
           laserOdometryTrans.setOrigin(tf::Vector3(tx, ty, tz));
           tfBroadcaster.sendTransform(laserOdometryTrans);
 
-          //对点云的曲率比较大和比较小的点投影到扫描结束位置
+          //对点云的曲率比较大和比较小的点投影到 一帧点云 扫描结束的时间点
           int cornerPointsLessSharpNum = cornerPointsLessSharp->points.size();
-          for (int i = 0; i < cornerPointsLessSharpNum; i++) {
-            TransformToEnd(&cornerPointsLessSharp->points[i], &cornerPointsLessSharp->points[i]);
-          }
+          for (int i = 0; i < cornerPointsLessSharpNum; i++) 
+            TransformToEnd(&cornerPointsLessSharp->points[i], &cornerPointsLessSharp->points[i]);    
 
           int surfPointsLessFlatNum = surfPointsLessFlat->points.size();
-          for (int i = 0; i < surfPointsLessFlatNum; i++) {
+          for (int i = 0; i < surfPointsLessFlatNum; i++) 
             TransformToEnd(&surfPointsLessFlat->points[i], &surfPointsLessFlat->points[i]);
-          }
 
           frameCount++;
-          //点云全部点，每间隔一个点云数据相对点云最后一个点进行畸变校正
+          //点云全部点，每间隔 一帧点云数据相对点云最后一个点进行畸变校正  投影到 一帧点云 扫描结束的时间点
           if (frameCount >= skipFrameNum + 1) {
             int laserCloudFullResNum = laserCloudFullRes->points.size();
             for (int i = 0; i < laserCloudFullResNum; i++) {
@@ -999,7 +1005,8 @@ int main(int argc, char** argv)
           }
 
           //按照跳帧数publich边沿点，平面点以及全部点给laserMapping(每隔一帧发一次)
-          if (frameCount >= skipFrameNum + 1) {
+          if (frameCount >= skipFrameNum + 1) 
+          {
             frameCount = 0;
 
             sensor_msgs::PointCloud2 laserCloudCornerLast2;
@@ -1018,7 +1025,7 @@ int main(int argc, char** argv)
             pcl::toROSMsg(*laserCloudFullRes, laserCloudFullRes3);
             laserCloudFullRes3.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
             laserCloudFullRes3.header.frame_id = "/camera";
-            pubLaserCloudFullRes.publish(laserCloudFullRes3);  // 畸变校正后的
+            pubLaserCloudFullRes.publish(laserCloudFullRes3);  // removeNaNFromPointCloud   from  velodyne_cloud_2  并且  投影到 一帧点云 扫描结束的时间点
           }
     }
 
@@ -1028,3 +1035,5 @@ int main(int argc, char** argv)
 
   return 0;
 }
+//在laserOdometry中配准的source是新一帧的点云,target是前一帧的点云.
+

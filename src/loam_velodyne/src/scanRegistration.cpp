@@ -704,7 +704,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg)
             }
           }
 
-          //将剩余的点（包括之前被排除的点）全部归入平面点中less flat类别中
+          //将剩余的 所有曲率小的平面点（包括之前被排除的点）全部归入平面点中less flat类别中
           for (int k = sp; k <= ep; k++) {
             if (cloudLabel[k] <= 0) {
               surfPointsLessFlatScan->push_back(laserCloud->points[k]);
@@ -794,14 +794,14 @@ int main(int argc, char** argv)
   ros::Subscriber subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2> ("/velodyne_points", 2, laserCloudHandler);
   ros::Subscriber subImu = nh.subscribe<sensor_msgs::Imu> ("/imu/data", 50, imuHandler);
 
-  pubLaserCloud = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_2", 2);    //publich消除非匀速运动畸变后的所有的点
+  pubLaserCloud = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_2", 2);    //补偿矫正后的所有的点 , 按照线号从小到大的点云
 
   //corner_less_sharp和surf_less_flat中包含更多的点，用来充当配准时的target， 而corner_sharp和surf_flat则充当source的角色。
   pubCornerPointsSharp = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_sharp", 2);  //publich消除非匀速运动畸变后的平面点和边沿点
-  pubSurfPointsFlat = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_flat", 2);
+  pubSurfPointsFlat = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_flat", 2);   
 
-  pubCornerPointsLessSharp = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_less_sharp", 2);
-  pubSurfPointsLessFlat = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_less_flat", 2);//将剩余的点（包括之前被排除的点）全部归入平面点中less flat类别中
+  pubCornerPointsLessSharp = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_less_sharp", 2);//挑选曲率最大的前20个点放入less sharp点集合   laser_cloud_sharp前2 个点
+  pubSurfPointsLessFlat = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_less_flat", 2); //将剩余的 所有曲率小的平面点（包括之前被排除的点）全部归入平面点中less flat类别中
 
   pubImuTrans = nh.advertise<sensor_msgs::PointCloud2> ("/imu_trans", 5);
 
@@ -810,3 +810,7 @@ int main(int argc, char** argv)
   return 0;
 }
 
+/*针对corner点， 源码中取了两种N值，生成两份点云。分别称为corner_sharp 和corner less_sharp, corner_sharp取得N值偏小，
+所以选取的是曲率更大的几个点， 放到一个点云中。而corner_less_sharp选取的N值偏大， 选取更多的点，放到另一个点云中。
+
+同样的道理， 针对surf点， 选取surf_flat和surf_less_flat两份点云。*/

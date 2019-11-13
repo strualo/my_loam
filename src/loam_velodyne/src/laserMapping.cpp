@@ -441,6 +441,7 @@ int main(int argc, char** argv)
   while (status) 
   {
     ros::spinOnce();
+//在laserMapping中配准的source是新一帧的点云,target是前面的点云拼接成的地图.
 
     if (newLaserCloudCornerLast && newLaserCloudSurfLast && newLaserCloudFullRes && newLaserOdometry &&
         fabs(timeLaserCloudCornerLast - timeLaserOdometry) < 0.005 &&fabs(timeLaserCloudSurfLast - timeLaserOdometry) < 0.005 &&
@@ -1194,4 +1195,6 @@ int main(int argc, char** argv)
 
   return 0;
 }
+
+//在laserMapping中配准的source是新一帧的点云,target是前面的点云拼接成的地图.
 
