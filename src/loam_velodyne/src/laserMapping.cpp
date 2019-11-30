@@ -6,7 +6,7 @@
 且点云中的点是离散的，我们也无法保证上一帧的点在下一帧中仍会被扫到。总之，无论我们多努力想让Lidar里程计的估计结果变得精准，
 残酷且冰冷的显示都会把我们的幻想击碎。因此，我们需要依靠别的方式去优化Lidar里程计的位姿估计精度。在SLAM领域，
 一般会采用与地图匹配的方式来优化这一结果。其实道理也很简单，我们始终认为后一时刻的观测较前一时刻带有更多的误差，换而言之，
-我们更加信任前一时刻结果。因此我们对已经构建地图的信任程度远高于临帧点云配准后的Lidar运动估计。
+我们更加信任前一时刻结果。因此我们对已经构建地图的信任程度远高于相邻帧点云配准后的Lidar运动估计。
 所以我们可以利用已构建地图对位姿估计结果进行修正。
 
 第二个问题：建图节点起到了什么作用？在回答上一个问题时也已经提到了，它的作用就是优化Lidar里程计的位姿估计结果。怎么做呢？没错，
@@ -53,15 +53,15 @@ bool newLaserCloudSurfLast = false;
 bool newLaserCloudFullRes = false;
 bool newLaserOdometry = false;
 
-int laserCloudCenWidth = 10;
-int laserCloudCenHeight = 5;
-int laserCloudCenDepth = 10;
-
-const int laserCloudWidth = 21;
-const int laserCloudHeight = 11;
-const int laserCloudDepth = 21;
+int laserCloudCenWidth = 10; // 邻域宽度, cm为单位
+int laserCloudCenHeight = 5; // 邻域高度
+int laserCloudCenDepth = 10; // 邻域深度
+const int laserCloudWidth = 21; // 子cube沿宽方向的分割个数
+const int laserCloudHeight = 11; // 高方向个数
+const int laserCloudDepth = 21; // 深度方向个数
 //点云方块集合最大数量
-const int laserCloudNum = laserCloudWidth * laserCloudHeight * laserCloudDepth;//4851
+
+const int laserCloudNum = laserCloudWidth * laserCloudHeight * laserCloudDepth; // 子cube总数
 
 //lidar视域范围内(FOV)的点云集索引
 int laserCloudValidInd[125];
@@ -102,6 +102,8 @@ pcl::PointCloud<PointType>::Ptr laserCloudSurfArray[laserCloudNum];
 pcl::PointCloud<PointType>::Ptr laserCloudCornerArray2[laserCloudNum];
 //中间变量，存放下采样过的平面点
 pcl::PointCloud<PointType>::Ptr laserCloudSurfArray2[laserCloudNum];
+
+pcl::PointCloud<PointType>::Ptr global_map(new pcl::PointCloud<PointType>());
 
 //kd-tree
 pcl::KdTreeFLANN<PointType>::Ptr kdtreeCornerFromMap(new pcl::KdTreeFLANN<PointType>());
@@ -161,7 +163,7 @@ void transformAssociateToMap()
   float sblz = sin(transformBefMapped[2]);
   float cblz = cos(transformBefMapped[2]);
 
-  float salx = sin(transformAftMapped[0]);
+  float salx = sin(transformAftMapped[0]);////transformAftMapped等于上一次建图结束后得到的全局变换
   float calx = cos(transformAftMapped[0]);
   float saly = sin(transformAftMapped[1]);
   float caly = cos(transformAftMapped[1]);
@@ -219,7 +221,7 @@ void transformAssociateToMap()
 }
 
 //记录odometry发送的转换矩阵与mapping之后的转换矩阵，下一帧点云会使用(有IMU的话会使用IMU进行补偿)
-void transformUpdate()
+void transformUpdate()  //迭代结束！更新相关的转移矩阵
 {
   if (imuPointerLast >= 0) {
     float imuRollLast = 0, imuPitchLast = 0;
@@ -254,7 +256,7 @@ void transformUpdate()
   //记录优化之前与之后的转移矩阵
   for (int i = 0; i < 6; i++) {
     transformBefMapped[i] = transformSum[i];
-    transformAftMapped[i] = transformTobeMapped[i];
+    transformAftMapped[i] = transformTobeMapped[i]; //transformAftMapped
   }
 }
 
@@ -387,7 +389,7 @@ int main(int argc, char** argv)
   ros::Subscriber subImu = nh.subscribe<sensor_msgs::Imu> ("/imu/data", 50, imuHandler);
 
   ros::Publisher pubLaserCloudSurround = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surround", 1);//最终的地图
-  ros::Publisher pubLaserCloudFullRes = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_registered", 2);
+  ros::Publisher pub_global_map = nh.advertise<sensor_msgs::PointCloud2>("/global_map", 2);
   ros::Publisher pubOdomAftMapped = nh.advertise<nav_msgs::Odometry> ("/aft_mapped_to_init", 5);
 
   nav_msgs::Odometry odomAftMapped;
@@ -462,13 +464,13 @@ int main(int argc, char** argv)
             int laserCloudCornerLastNum = laserCloudCornerLast->points.size();
             for (int i = 0; i < laserCloudCornerLastNum; i++) {
               pointAssociateToMap(&laserCloudCornerLast->points[i], &pointSel);
-              laserCloudCornerStack2->push_back(pointSel);
+              laserCloudCornerStack2->push_back(pointSel); //初步转换到世界坐标系下的角点
             }
 
             int laserCloudSurfLastNum = laserCloudSurfLast->points.size();
             for (int i = 0; i < laserCloudSurfLastNum; i++) {
               pointAssociateToMap(&laserCloudSurfLast->points[i], &pointSel);
-              laserCloudSurfStack2->push_back(pointSel);
+              laserCloudSurfStack2->push_back(pointSel); //初步转换到世界坐标系下的平面点
             }
           }
 
@@ -1124,11 +1126,27 @@ int main(int argc, char** argv)
               laserCloudSurfArray2[ind] = laserCloudTemp;
             }
 
+            //将点云中全部点转移到世界坐标系下
+            int laserCloudFullResNum = laserCloudFullRes->points.size();
+            for (int i = 0; i < laserCloudFullResNum; i++) {
+              pointAssociateToMap(&laserCloudFullRes->points[i], &laserCloudFullRes->points[i]);
+            }
+
             mapFrameCount++;
             //特征点汇总下采样，每隔五帧publish一次，从第一次开始
             if (mapFrameCount >= mapFrameNum) {
               mapFrameCount = 0;
+              
+                /*发布全局一致点云地图  基于完整点云数据拼接*/
+              // sensor_msgs::PointCloud2 global_map_msg;
+              // *global_map+=*laserCloudFullRes;
+              // pcl::toROSMsg(*global_map, global_map_msg);
+              // global_map_msg.header.stamp = ros::Time().fromSec(timeLaserOdometry);
+              // global_map_msg.header.frame_id = "/camera_init";
 
+              // pub_global_map.publish(global_map_msg); //发布地图
+
+                /*发布周围点云地图  基于平面点和角点数据拼接*/
               laserCloudSurround2->clear();
               for (int i = 0; i < laserCloudSurroundNum; i++) {
                 int ind = laserCloudSurroundInd[i];
@@ -1147,17 +1165,7 @@ int main(int argc, char** argv)
               pubLaserCloudSurround.publish(laserCloudSurround3);
             }
 
-            //将点云中全部点转移到世界坐标系下
-            int laserCloudFullResNum = laserCloudFullRes->points.size();
-            for (int i = 0; i < laserCloudFullResNum; i++) {
-              pointAssociateToMap(&laserCloudFullRes->points[i], &laserCloudFullRes->points[i]);
-            }
 
-            sensor_msgs::PointCloud2 laserCloudFullRes3;
-            pcl::toROSMsg(*laserCloudFullRes, laserCloudFullRes3);
-            laserCloudFullRes3.header.stamp = ros::Time().fromSec(timeLaserOdometry);
-            laserCloudFullRes3.header.frame_id = "/camera_init";
-            pubLaserCloudFullRes.publish(laserCloudFullRes3);
 
             geometry_msgs::Quaternion geoQuat = tf::createQuaternionMsgFromRollPitchYaw
                                       (transformAftMapped[2], -transformAftMapped[0], -transformAftMapped[1]);
